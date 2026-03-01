@@ -6,7 +6,8 @@ __pycache__/
 dist/
 build/
 
-# Data and outputs
+# Data and outputs (no dataset files are committed; use dataset path only)
+data/
 outputs/
 *.json
 !corpus/*.json

@@ -2,6 +2,16 @@
 
 Evaluation code for analyzing entity-centric attention flow in language models (e.g. TOEFL essay / SST-style corpora). This repository accompanies the paper on how much attention links noun phrases (NPs), verb phrases (VPs), and other tokens.
 
+## Datasets
+
+**No original dataset files are included in this repository.** All data is used via a **configurable data path** (or, for SST-5, downloaded at runtime from Hugging Face).
+
+- **TOEFL (TOEFL11)**  
+  The TOEFL-based experiments use the [TOEFL11 corpus of non-native English](https://www.ets.org/research/policy_research_reports/publications/report/2013/jrkv.html) (Blanchard et al., 2013). This dataset is **not included** in this repository. You must **obtain a license from the official ETS source** and prepare the data (e.g. CSV folds) yourself. Then set the **data path** to your local directory (see [Setup](#setup)). See the [ETS Research Report](https://www.ets.org/research/policy_research_reports/publications/report/2013/jrkv.html) for details and how to request access.
+
+- **SST-5 (Stanford Sentiment Treebank, 5-way)**  
+  The SST-5 experiments use the [SetFit/sst5](https://huggingface.co/datasets/SetFit/sst5) dataset on Hugging Face. It is **downloaded automatically** at runtime when you run `ft_attn_flow_test.py` (no dataset files in this repo; no separate download or license required).
+
 ## Setup
 
 1. **Clone and install**
@@ -26,12 +36,11 @@ Evaluation code for analyzing entity-centric attention flow in language models (
 
 3. **Data**
 
-   - **`attn_flow_test.py`** expects **TOEFL-style data**: a directory of CSV folds named `sst_train_fold_0.csv`, `sst_valid_fold_0.csv`, `sst_test_fold_0.csv`. Set that directory in `corpus/config_toefl.yaml` under `dataset.path_data` (default: `./data/toefl`), or set the env var:
+   - **`attn_flow_test.py`** expects **TOEFL-style data** (see [Datasets](#datasets) for the official TOEFL11 source and license). After obtaining and preparing the data, use a directory of CSV folds named `sst_train_fold_0.csv`, `sst_valid_fold_0.csv`, `sst_test_fold_0.csv`. Set that directory in `corpus/config_toefl.yaml` under `dataset.path_data` (default: `./data/toefl`), or set the env var:
      ```bash
      export DATA_PATH=/path/to/your/toefl_folds
      ```
-     and use the default config (it reads `DATA_PATH` when set).
-   - **`ft_attn_flow_test.py`** uses **SST-5 from Hugging Face** (`SetFit/sst5`) and does not require local TOEFL data.
+   - **`ft_attn_flow_test.py`** uses **SST-5** from [Hugging Face (SetFit/sst5)](https://huggingface.co/datasets/SetFit/sst5) and downloads it automatically; no local TOEFL data is required.
 
 ## Quick start (no local data)
 
