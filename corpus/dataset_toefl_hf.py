@@ -38,11 +38,7 @@ class Dataset_TOEFL():
         text = sample["essay"]
         tokenized_seg_ids = []
         tokenized_attn_mask = []
-        max_len_seg = 0  # max length of a sentence in the whole dataset
-        # print("----")
-        # print(text)
-
-        ## segmentation by the given length
+        max_len_seg = 0
         words = text.split()
         splitted = []
         if len(words) > self.len_force_sent_trunc:
@@ -65,11 +61,6 @@ class Dataset_TOEFL():
         
         if max_len_seg > self.max_len_sent:
             self.max_len_sent = max_len_seg
-
-        #     print(curr)
-        #     print(tokenized)
-        # print(ewklfjwelew)
-
         tokenized = {"input_ids": tokenized_seg_ids, "attention_mask": tokenized_attn_mask}
 
 
@@ -80,7 +71,7 @@ class Dataset_TOEFL():
         sents_list = eval(sample["essay_sents"])
         tokenized_sents_ids = []
         tokenized_attn_mask = []
-        max_len_sent = 0  # max length of a sentence in the whole dataset
+        max_len_sent = 0
         max_text = ""
         for idx_sent, sent in enumerate(sents_list):
             tokenized = self.tokenizer(sent)
@@ -93,20 +84,8 @@ class Dataset_TOEFL():
                 max_text = sent
 
         tokenized = {"input_ids": tokenized_sents_ids, "attention_mask": tokenized_attn_mask}
-        
-        # self.max_len_sent = max_len_sent if max_len_sent > self.max_len_sent else self.max_len_sent
-
         if max_len_sent > self.max_len_sent:
             self.max_len_sent = max_len_sent
-            # print("--")
-            # print(max_text)
-            # print(self.max_len_sent)
-
-        # print("--")
-        # # print(self.max_len_sent)
-        # print(max_len_sent)
-        # print(max_text)
-        # print(ewklfjwklewf)
 
         return tokenized
     
@@ -119,25 +98,10 @@ class Dataset_TOEFL():
         train_pd = pd.read_csv(os.path.join(path_data, "sst_train_fold_" + str_cur_fold + ".csv"), sep=",", header=0, encoding="utf-8", engine='c', index_col=0)
         valid_pd = pd.read_csv(os.path.join(path_data, "sst_valid_fold_" + str_cur_fold + ".csv"), sep=",", header=0, encoding="utf-8", engine='c', index_col=0)
         test_pd = pd.read_csv(os.path.join(path_data, "sst_test_fold_" + str_cur_fold + ".csv"), sep=",", header=0, encoding="utf-8", engine='c', index_col=0)
-
-        # print(train_pd.head())
-        # print(train_pd.columns)
-
-        # extract only the essays in the target prompt (1 to 8)
         train_pd = train_pd.loc[train_pd['prompt'] == target_prompt]
         valid_pd = valid_pd.loc[valid_pd['prompt'] == target_prompt]
         test_pd = test_pd.loc[test_pd['prompt'] == target_prompt]
-
-        # # sampling
-        # num_sample = 10
-        # train_pd = train_pd[:num_sample]
-        # valid_pd = valid_pd[:num_sample]
-        # test_pd = test_pd[:num_sample]
-
-        # total dataset including both train and test -> for debugging or analysis
         total_pd = pd.concat([self.train_pd, self.valid_pd, self.test_pd], sort=True)
-
-        ## converting to HF datasets
         dataset_hf = datasets.DatasetDict({"train": datasets.Dataset.from_pandas(train_pd), 
                                            "validate": datasets.Dataset.from_pandas(valid_pd),
                                            "test": datasets.Dataset.from_pandas(test_pd),
@@ -150,19 +114,12 @@ class Dataset_TOEFL():
         elif tokenize_method == "length":
             tokenized_dataset = dataset_hf.map(self.tokenize_map_length, batched=False)
         else: raise Exception("Not defined tokenized method")
-
-        # print(tokenized_dataset)
-        # print(tokenized_dataset["train"]["input_ids"][:1])
-        # print(ewlkjelwf)
-
         return tokenized_dataset
 
     def tokenize_sent(self, cur_text):
 
         doc_stanza = self.stanza_pipeline(cur_text)
-        tokenized_sents = [sentence.text for sentence in doc_stanza.sentences]  # convert to list of list
-        # print(tokenized_sents)
-
+        tokenized_sents = [sentence.text for sentence in doc_stanza.sentences]
         return tokenized_sents
 
     def filter_single_sent_text(self, data_pd):
@@ -171,17 +128,6 @@ class Dataset_TOEFL():
 
         print(len(data_pd))
         print(len(filtered))
-
-        '''
-        origianl vs filtered num (threshold: 2)
-        7265
-        7229
-        2418
-        2406
-        2417
-        2407
-        '''
-
         return filtered
     
     def force_split_sent(self, sent):
@@ -230,31 +176,9 @@ class Dataset_TOEFL():
         return data_pd
 
     def tokenize_convert_HF_dataset(self, path_data, data_pd, split, str_cur_fold="0"):
-        '''
-            tokenize input text into sentences, then convert into HF dataset, finally save into the disk
-        '''
-
-        # list_sents = []
-        # for index, row in data_pd.iterrows():
-        #     essay = row["essay"]
-        #     sents = self.tokenize_sent(essay)
-        #     list_sents.append(sents)
-        
-        # # add a new column of tokenized essay sentences (to save the time for every run later)
-        # data_pd["essay_sents"] = list_sents
-        # # map_train = data_pd.set_index("essay_id").T.to_dict()  # key: essay_id, values: prompt, native_lang, essay_score, essay, essay_sents        
-
         data_pd = self.sentence_toeknieze(data_pd)
-
-        # convert it into the HuggingFace dataset style to deal with it easily with others
         ds = datasets.Dataset.from_pandas(data_pd)
-        # print(ds)
-
-        # ds.save_to_disk(os.path.join(path_data, "toefl_" + str_cur_fold + "_hf", split))  # this approach does not support iteratable dataset, hence use JSON
         ds.to_json(os.path.join(path_data, "hf_" + split + "_toefl_" + str_cur_fold + ".json"))
-
-        # datasets.concatenate_datasets
-
         return ds
     
     def load_and_convert_HF_dataset(self, path_data, str_cur_fold="0"):
@@ -269,9 +193,6 @@ class Dataset_TOEFL():
         self.tokenize_convert_HF_dataset(path_data, self.train_pd, split="train")
         self.tokenize_convert_HF_dataset(path_data, self.valid_pd, split="valid")
         self.tokenize_convert_HF_dataset(path_data, self.test_pd, split="test")
-
-        # save: pd.to_csv
-
         return
 
     def tokenize_sents_save_pd(self, path_data, cur_fold="0", force_sent_tokenize=False):

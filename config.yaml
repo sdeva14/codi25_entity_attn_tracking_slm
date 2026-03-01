@@ -1,18 +1,10 @@
-# model:
-#   pretrained_weights: xlnet-base-case
-# training:
-#   num_epochs: 10
-#   learning_rate: 0.003
 defaults:
   - corpus: config_toefl
-  # - models: config_model
 
-# Use environment variable: export HF_TOKEN=your_token
-# Or set below (avoid committing real tokens)
 hf_token: null
 
 training_args:
-  mixed_precision: 'no'  #  ‘no’,‘fp16’,‘bf16 or ‘fp8’.
+  mixed_precision: 'no'
   gradient_accumulation_steps: 1
   run_iter: 5
   path_resume_checkpoint: ""
@@ -23,6 +15,4 @@ exp_args:
   top_k: 5
 
 model:
-  # llm_id: microsoft/phi-2
   llm_id: microsoft/Phi-3.5-mini-instruct
-  # llm_id: meta-llama/Llama-3.2-3B-Instruct
