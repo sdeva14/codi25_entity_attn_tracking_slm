@@ -89,6 +89,7 @@ def attn_ranking_entity(model_weights, attn_weights, output_np_parser, top_k):
 def attn_flow_entity(model_weights, attn_weights, list_np_sbw_loc):
     """
     Sum-based attention flow between entity–other, entity–entity, other–other, inner-entity (type1–4).
+    Alternative to attn_ranking_entity; kept for legacy/experimental metrics.
     """
     batch_size, len_seq = attn_weights.size(0), attn_weights.size(1)
     attn_diag = torch.tril(attn_weights, diagonal=-1)
@@ -96,10 +97,7 @@ def attn_flow_entity(model_weights, attn_weights, list_np_sbw_loc):
     attn_weights_norm = attn_diag / denorm
 
     ind_ent = [curr[1] for curr in list_np_sbw_loc]
-    list_all_ind_ent = []
-    for cur_ind_pair in ind_ent:
-        ind_start, ind_end = cur_ind_pair[0], cur_ind_pair[1]
-        list_all_ind_ent.extend(list(range(ind_start, ind_end + 1)))
+    list_all_ind_ent = flat_index_to_list(ind_ent)
     list_all_ind_others = list(set(range(len_seq)).difference(list_all_ind_ent))
 
     inner_ent_masked_attn = attn_weights_norm.clone()

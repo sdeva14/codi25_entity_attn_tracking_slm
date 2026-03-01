@@ -1,44 +1,41 @@
-import os, sys
+import os
+import sys
+import time
+import math
+import logging
+
 import numpy as np
 import pandas as pd
 import statistics
-import logging
-import collections
-import re
-    
 import torch
-import torch.nn.functional as f
-
-from entity_parser.np_parser_backt import NP_Parser_BackT
-
-from transformers import AutoModel, AutoModelForSeq2SeqLM, AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-from transformers import XLNetModel, T5EncoderModel
-from transformers import logging
-logging.set_verbosity_error()
-
-import hydra
-from dataclasses import dataclass
-from hydra.core.config_store import ConfigStore
-from omegaconf import DictConfig, OmegaConf
-
-import json
-
-import time
-
 from pathlib import Path
 
-import logging
+import hydra
+from omegaconf import DictConfig, OmegaConf
 
-import math
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import logging as tf_logging
+tf_logging.set_verbosity_error()
 
-import ent_attn_func.attn_flow as ent_attn_flow
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
 import datasets
-from datasets import load_dataset, concatenate_datasets
+from datasets import load_dataset
 
-from peft import LoraConfig, PeftModel, get_peft_model, TaskType
-from peft import AutoPeftModel, AutoPeftModelForCausalLM
-from peft import prepare_model_for_kbit_training
+from entity_parser.np_parser_backt import NP_Parser_BackT
+import ent_attn_func.attn_flow as ent_attn_flow
+from utils.text_utils import filter_sentence
+from utils.sentiment import (
+    SENTIMENT_PROMPT,
+    convert_label_str,
+    convert_label_list_int,
+    clean_generated_sentiment_class,
+    get_hist_preds_labels,
+    fill_empty_label,
+)
+from utils.stats import get_avg_from_lists
+from utils.llm_utils import get_response_delimiters, filter_generated_text
+from utils.plot_utils import plot_preds_labels_dists
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -134,229 +131,46 @@ def peft_encoder(llm_id, encoder, tokenizer, train_dataset, test_dataset, messag
 
     return encoder
 
-from matplotlib import pyplot as plt
-import numpy as np
-
-def plot_preds_labels_dists(hist_preds, hist_labels, label_out, is_equal_label_dist=False):
-    bar_width = 0.20
-    fig, ax = plt.subplots()
-    list_preds = sorted(hist_preds.items())  # tuple (x, y)
-    x_preds, y_preds = zip(*list_preds)
-
-    list_labels = sorted(hist_labels.items())  # tuple (x, y)
-    x_labels, y_labels = zip(*list_labels)
-
-    x_name = ["Very Negative", "Negative", "Neutral", "Positive", "Very Positive"]
-    labels = ["Predictions", "Gold-Labels"]
-
-    shift = 0.5  # x-axis shift location from zero center in the figure
-
-    rects1 = plt.bar(np.arange(len(x_name)) - (shift * bar_width), y_preds, color='#7eb0d5', label=labels[0], width=bar_width)
-    rects2 = plt.bar(np.arange(len(x_name)) + (shift * bar_width), y_labels, color='#bd7ebe', label=labels[1], width=bar_width)
-
-    plt.xticks(np.arange(len(y_preds)), x_name, rotation=0)  ## for ASAP
-    if is_equal_label_dist:
-        plt.title('Sentiment Analysis Distribution: Preds vs. Labels (Equal)')
-    else:
-        plt.title('Sentiment Analysis Distribution: Preds vs. Labels (Non-Equal)')
-
-    def autolabel(rects):
-        """
-        Attach a text label above each bar displaying its height
-        """
-        for rect in rects:
-            height = rect.get_height()
-            ax.text(rect.get_x() + rect.get_width()/2., 1.005*height,
-                    '%d' % float(height),
-                    ha='center', va='bottom')
-
-    autolabel(rects1)
-    autolabel(rects2)
-
-    ax.legend()
-    x1, x2, y1, y2 = plt.axis()
-    plt.axis((x1, x2, y1, 120))
-    plt.ylabel('The number of predictions/labels')
-    fig.tight_layout()
-
-    plt.savefig(label_out + '_' + 'preds' + '.png', format='png', dpi=300)
-
-def get_hist_preds_labels(preds, labels):
-  hist_preds = collections.Counter(preds)
-  hist_labels = collections.Counter(labels)
-
-  return hist_preds, hist_labels
-
-
-def fill_empty_label(hist_curr, num_class=5):
-  for i in range(num_class):
-    if i not in hist_curr:
-      hist_curr[i] = 0
-
-  return hist_curr
 
 def convert_msgs_format(curr_dataset):
-    '''
-        converting dataset to chat-based format, so that SFT trainer uses chat template with the given tokenizer
-        https://huggingface.co/docs/trl/en/sft_trainer
-    '''
-    from datasets import Dataset
+    """Convert dataset to chat format for SFT trainer (user + assistant)."""
     import pandas as pd
-
     list_dict_msgs = []
-    for i, curr in enumerate(curr_dataset):
-        curr_msg = []
-        curr_msg.append({"role": "user", "content": "Your role is to classify the sentiment of conversation into 5 classes: very_positive, positive, neutral, negative, or very_negative. You must generate only one word of sentiment class" + "\n\n" + curr["text"]})
-        curr_msg.append({"role": "assistant", "content": curr["label"]})
+    for curr in curr_dataset:
+        curr_msg = [
+            {"role": "user", "content": SENTIMENT_PROMPT + "\n\n" + curr["text"]},
+            {"role": "assistant", "content": curr["label"]},
+        ]
+        list_dict_msgs.append({"messages": curr_msg})
+    return datasets.Dataset.from_pandas(pd.DataFrame(data=list_dict_msgs))
 
-        curr_msgs_dict = {"messages": curr_msg}
-        list_dict_msgs.append(curr_msgs_dict)
-    dataset_chat_format = datasets.Dataset.from_pandas(pd.DataFrame(data=list_dict_msgs))
-    return dataset_chat_format
-
-def clean_generated_sentiment_class(preds):
-    cleaned_preds = []
-    sentiment_labels = ["very_negative", "negative", "neutral", "positive", "very_positive"]
-    for i, curr in enumerate(preds):
-        splitted = curr.split()
-        if len(splitted) > 1 and splitted[0] not in sentiment_labels:
-            label_str = "neutral"
-        else:
-            label_str = curr
-
-        cleaned_preds.append(label_str)
-    return cleaned_preds
-
-def convert_label_str(sample):
-    '''
-        converting label from number to string (to work with chat-based model)
-    '''
-    label_int = sample["label"]
-    label_str = ""
-    if label_int == 0:
-        label_str = "very_negative"
-    elif label_int == 1:
-        label_str = "negative"
-    elif label_int == 2:
-        label_str = "neutral"
-    elif label_int == 3:
-        label_str = "positive"
-    elif label_int == 4:
-        label_str = "very_positive"
-
-    sample["label"] = label_str
-    return sample
-
-def convert_label_int(sample):
-    label_str = sample["label"]
-    label_int = 0
-    if  label_str == "very_negative":
-        label_int = 0
-    elif label_str == "negative":
-        label_int = 1
-    elif label_str == "neutral":
-        label_int = 2
-    elif label_str == "positive":
-        label_int = 3
-    elif label_str == "very_positive":
-        label_int = 4
-
-    sample["label"] = label_int
-    return sample
-
-def filter_generated_text(text, pre_header, post_header):
-    ind_response_start = text.rfind(pre_header)
-    len_prefix = len(pre_header)
-    only_generated_text = text[ind_response_start + len_prefix:]
-    ind_suffix = only_generated_text.find(post_header)
-    only_generated_text = only_generated_text[:ind_suffix]
-
-    only_generated_text = only_generated_text.strip()
-    only_generated_text = only_generated_text.lower()
-    
-    return only_generated_text
 
 def inference_sentiment(dataset_curr, llm_id, model, tokenizer, messages, max_new_tokens=5):
     preds = []
     labels = []
+    pre_header, post_header = get_response_delimiters(llm_id)
     for i in range(len(dataset_curr)):
-        prompt = "Your role is to classify the sentiment of conversation into 5 classes: very_positive, positive, neutral, negative, or very_negative. You must generate only one word of sentiment class."
         cur_user_response = dataset_curr[i]["text"]
         label_curr = dataset_curr[i]["label"]
-        messages[-1]["content"] = prompt + "\n\n" + cur_user_response
+        messages[-1]["content"] = SENTIMENT_PROMPT + "\n\n" + cur_user_response
         inputs = tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt")
-        inputs = inputs.to('cuda')
+        inputs = inputs.to("cuda")
         outputs = model.generate(inputs, max_new_tokens=max_new_tokens)
         text = tokenizer.batch_decode(outputs)[0]
-        if "microsoft/Phi-" in llm_id:
-            pre_header = "<|assistant|>"
-            post_header = "<|end|>"
-        elif "meta-llama/Llama-3" in llm_id:
-            pre_header = "assistant<|end_header_id|>"
-            post_header = "<|eot_id|>"
-        elif "google/gemma-2" in llm_id:
-            pre_header = "<start_of_turn>model"
-            post_header = "<end_of_turn>"
-        elif "Qwen2.5" in llm_id:
-            pre_header = "<|im_start|>assistant"
-            post_header = "<|im_end|>"
-
         only_generated_text = filter_generated_text(text, pre_header, post_header)
         preds.append(only_generated_text)
         labels.append(label_curr)
-
     return preds, labels
 
 def eval_accuracy(preds, labels):
-  acc = sum(1 for x, y in zip(preds, labels) if x == y) / len(preds)
-  return acc
+    return sum(1 for x, y in zip(preds, labels) if x == y) / len(preds)
+
 
 def eval_kappa(preds, labels, is_quad_also=True):
-  from sklearn.metrics import cohen_kappa_score
-  kappa_linear = cohen_kappa_score(preds, labels, weights="linear")
-  kappa_quad = 0.0
-  if is_quad_also:
-    kappa_quad = cohen_kappa_score(preds, labels, weights="quadratic")
-  return kappa_linear, kappa_quad
-
-def convert_label_list_int(labels):
-    labels_int = []
-    for i, curr in enumerate(labels):
-        if  curr == "very_negative":
-            label_int = 0
-        elif curr == "negative":
-            label_int = 1
-        elif curr == "neutral":
-            label_int = 2
-        elif curr == "positive":
-            label_int = 3
-        elif curr == "very_positive":
-            label_int = 4
-        else:
-            label_int = 2
-        labels_int.append(label_int)
-
-    return labels_int
-
-def convert_pred_numeric(preds):
-  '''
-    convert langchain document class to numerical labels
-    just to keep the given output format (otherwise output format can be modified depending on the dataset)
-  '''
-  preds_numeric = []
-
-  for curr in preds:
-    curr_pred = curr.name  # e.g., negative
-
-    if curr_pred == "very_negative": label = 0
-    elif curr_pred == "negative": label = 1
-    elif curr_pred == "neutral": label = 2
-    elif curr_pred == "positive": label = 3
-    elif curr_pred == "very_positive": label = 4
-
-    preds_numeric.append(label)
-
-  return preds_numeric
+    from sklearn.metrics import cohen_kappa_score
+    kappa_linear = cohen_kappa_score(preds, labels, weights="linear")
+    kappa_quad = cohen_kappa_score(preds, labels, weights="quadratic") if is_quad_also else 0.0
+    return kappa_linear, kappa_quad
 
 
 def sample_dataset(curr_dataset, num_labels=5, sample_ratio=0.1, num_samples_label=40):
@@ -399,45 +213,6 @@ def print_trainable_parameters(model):
     logger.info(f"Trainable Parameters: {trainable_params}")
     logger.info(f"Total Parameters: {total_params}")
     logger.info(f"Trainable %: {trainable_percent:.2f}")
-
-def get_avg_from_lists(list_val):
-    if all(isinstance(item, list) for item in list_val):
-        flatten_sents = [x for xs in list_val for x in xs]
-    elif all(not isinstance(item, list) for item in list_val):
-        flatten_sents = list_val
-    np_flatten = np.array(flatten_sents)
-    avg_sents = np.nanmean(np_flatten)
-    std_sents = np.nanstd(np_flatten)
-    outputs = []
-    outputs.append(avg_sents)
-    outputs.append(std_sents)
-
-    return outputs
-
-
-def filter_sentence(cur_sent):
-
-    filter_punctation = [".", ":"]
-
-    cur_sent = cur_sent.replace(",", ", ")
-    cur_sent = cur_sent.replace("\'", " ")
-    cur_sent = cur_sent.replace("\"", ", ")
-    cur_sent = cur_sent.replace("-", " ")
-    cur_sent = cur_sent.replace("/", " ")
-    cur_sent = cur_sent.replace("*", " ")
-    cur_sent = cur_sent.replace("<", " ")
-    cur_sent = cur_sent.replace(">", " ")
-    cur_sent = re.sub(r'\.{2,}', '. ', cur_sent)
-    cur_sent = re.sub(r'\!{2,}', '! ', cur_sent)
-    cur_sent = re.sub(r'\?{2,}', '? ', cur_sent)
-
-    cur_sent = re.sub(r"\s+", " ", cur_sent, flags=re.UNICODE)
-    cur_sent = cur_sent.strip()
-
-    if len(cur_sent) > 1 and cur_sent[-1] in filter_punctation:
-        cur_sent = cur_sent[:-1]
-
-    return cur_sent
 
 def wrapper_ent_attn_flow(cfg, encoder, tokenizer, sent_corpus, top_k=5, target_layer=-1):
     '''
@@ -635,59 +410,10 @@ def ent_attn_layer_analysis(cfg, encoder, tokenizer, sent_corpus, max_layer=32):
     return
 
 
-def load_dataset_toefl(cfg, num_samples=0):
-
-    cur_fold = 0
-    str_cur_fold = str(cur_fold)
-
-    #### load dataset from files
-    train_pd = pd.read_csv(os.path.join(cfg.dataset.path_data, "sst_train_fold_" + str_cur_fold + ".csv"), sep=",", header=0, encoding="utf-8", engine='c', index_col=0)
-    valid_pd = pd.read_csv(os.path.join(cfg.dataset.path_data, "sst_valid_fold_" + str_cur_fold + ".csv"), sep=",", header=0, encoding="utf-8", engine='c', index_col=0)
-    test_pd = pd.read_csv(os.path.join(cfg.dataset.path_data, "sst_test_fold_" + str_cur_fold + ".csv"), sep=",", header=0, encoding="utf-8", engine='c', index_col=0)
-    train_pd = train_pd.loc[train_pd['prompt'] == cfg.dataset.target_prompt]
-    valid_pd = valid_pd.loc[valid_pd['prompt'] == cfg.dataset.target_prompt]
-    test_pd = test_pd.loc[test_pd['prompt'] == cfg.dataset.target_prompt]
-    if num_samples > 0:
-        train_pd = train_pd[:num_samples]
-        valid_pd = valid_pd[:num_samples]
-        test_pd = test_pd[:num_samples]
-    total_pd = pd.concat([train_pd, valid_pd, test_pd], sort=True)
-    total_corpus = total_pd['essay'].values
-    import stanza
-    tokenizer_stanza = stanza.Pipeline('en', processors='tokenize', use_gpu=True)
-    num_sents = []
-    sent_corpus = []
-    for cur_doc in total_corpus:
-        doc_stanza = tokenizer_stanza(cur_doc)
-        sent_list = [sentence.text for sentence in doc_stanza.sentences]
-        
-        sent_corpus.append(sent_list)
-        num_sents.append(len(sent_list))
-
-
-    return sent_corpus, num_sents
-
-
 @hydra.main(version_base=None, config_path=".", config_name="config")
 def main(cfg: DictConfig) -> None:
     hf_token = os.environ.get("HF_TOKEN") or OmegaConf.select(cfg, "hf_token") or None
-    use_4bit = True
-    use_nested_quant = False
-    bnb_4bit_compute_dtype = "float16"
-    bnb_4bit_quant_type = "nf4"
-    compute_dtype = getattr(torch, bnb_4bit_compute_dtype)
-    fp16 = True
-    bf16 = False
-
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=use_4bit,
-        bnb_4bit_quant_type=bnb_4bit_quant_type,
-        bnb_4bit_compute_dtype=compute_dtype,
-        bnb_4bit_use_double_quant=use_nested_quant,
-    )
-
     tokenizer = AutoTokenizer.from_pretrained(cfg.model.llm_id, low_cpu_mem_usage=True, token=hf_token)
-
     encoder_dtype = torch.bfloat16
     if "xlnet" in cfg.model.llm_id or "google-bert" in cfg.model.llm_id:
         encoder_dtype = "auto"

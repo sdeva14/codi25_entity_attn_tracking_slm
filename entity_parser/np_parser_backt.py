@@ -252,7 +252,7 @@ class NP_Parser_BackT:
                         prev = phrase_in_words[-1][0]
         return phrase_in_words
 
-    def filter_speical_tokens(self, sent_ids):
+    def filter_special_tokens(self, sent_ids):
         if "meta-llama/Llama-3" in self.encoder_weights:
             sent_ids = sent_ids[:, 1:]
         elif "llama" in self.encoder_weights or "opt" in self.encoder_weights:
@@ -277,7 +277,7 @@ class NP_Parser_BackT:
         if cur_sent[-1] in self.punctuation_list:
             cur_sent = cur_sent[:-1]
         sent_ids = self.tokenizer(cur_sent, return_tensors="pt").input_ids
-        sent_ids = self.filter_speical_tokens(sent_ids)
+        sent_ids = self.filter_special_tokens(sent_ids)
         decoded_str = self.tokenizer.batch_decode(sent_ids)[0]
         i_ids = sent_ids[0].tolist()
         decoded_tokens = self.tokenizer.convert_ids_to_tokens(i_ids)

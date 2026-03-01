@@ -92,10 +92,12 @@ Run all commands from the **project root**.
 - `attn_flow_test.py` – entity attention flow evaluation on **TOEFL** data (requires local CSV folds).
 - `ft_attn_flow_test.py` – PEFT fine-tuning + entity attention flow on **SST-5** (Hugging Face).
 - `stat_analysis.py` – aggregate mean/std from `log_entity_attn/<sub_dir>/type1.log`, `type2.log`, `type3.log`.
+- `tokenizer_test.py` – dev script to test NP parser and tokenizer.
+- `utils/` – shared helpers: text normalization, sentiment labels/conversions, stats (mean/std), LLM response delimiters, plotting.
 - `ent_attn_func/` – attention flow and top-k ranking over NP/VP spans; special-token filtering.
 - `entity_parser/` – NP/VP parsing and subword alignment:
   - `np_parser_backt.py` – parser used by all scripts (supports VP and `is_add_vp`).
-- `corpus/` – dataset config and TOEFL HuggingFace-style loading.
+- `corpus/` – dataset config, TOEFL CSV loading (`load_toefl.py`), and HuggingFace-style dataset classes.
 - `collators/` – data collators for TOEFL.
 - `scripts/` – e.g. SLURM job script for `attn_flow_test.py`.
 

@@ -23,14 +23,8 @@ class Dataset_TOEFL():
 
         self.len_segment_trunc = cfg.dataset.len_segment_trunc  # parameter to tokenize texts into segments, w.r.t. words
 
-        return
-    
     def filter_special_tokens(self, tokenized, idx_sent):
-        """Filter special tokens from per-sentence tokenization (model-specific)."""
-        sent_ids = tokenized["input_ids"]
-        attn_mask = tokenized["attn_mask"]
-        tokenized["input_ids"] = sent_ids
-        tokenized["attn_mask"] = attn_mask
+        """No-op placeholder; override for model-specific filtering of input_ids/attn_mask."""
         return tokenized
 
     def tokenize_map_length(self, sample):

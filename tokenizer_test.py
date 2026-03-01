@@ -1,6 +1,5 @@
 """Dev script: test NP parser and tokenizer for a given model (Hydra config)."""
 import os
-import re
 import sys
 
 import torch
@@ -12,6 +11,7 @@ from transformers import logging as tf_logging
 tf_logging.set_verbosity_error()
 
 from entity_parser.np_parser_backt import NP_Parser_BackT
+from utils.text_utils import filter_sentence
 
 
 @hydra.main(version_base=None, config_path=".", config_name="config")
@@ -32,19 +32,7 @@ def main(cfg: DictConfig) -> None:
         param.requires_grad = False
 
     cur_sent = "'If a bird spreads its wings beyond its reach, it will crash'."
-
-    cur_sent = cur_sent.replace(",", ", ")
-    cur_sent = cur_sent.replace("\'", " ")
-    cur_sent = cur_sent.replace("\"", ", ")
-    cur_sent = cur_sent.replace("-", " ")
-    cur_sent = cur_sent.replace("/", " ")
-    cur_sent = cur_sent.replace("*", " ")
-    cur_sent = re.sub(r'\!{2,}', ' ', cur_sent)
-    cur_sent = re.sub(r'\?{2,}', ' ', cur_sent)
-
-    cur_sent = re.sub(r"\s+", " ", cur_sent, flags=re.UNICODE)
-    cur_sent = cur_sent.strip()
-
+    cur_sent = filter_sentence(cur_sent)
     print(f"Preprocessed: {cur_sent}")
 
     ### tokenization as a whole sentence

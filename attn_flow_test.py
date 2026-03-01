@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import json
 import time
@@ -20,6 +21,9 @@ tf_logging.set_verbosity_error()
 
 from entity_parser.np_parser_backt import NP_Parser_BackT
 import ent_attn_func.attn_flow as ent_attn_flow
+from utils.text_utils import filter_sentence
+from utils.stats import get_avg_from_lists
+from corpus.load_toefl import load_dataset_toefl
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -29,36 +33,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
-def get_avg_from_lists(list_val):
-    flat = [x for xs in list_val for x in xs]
-    arr = np.array(flat, dtype=float)
-    return [np.nanmean(arr), np.nanstd(arr)]
-
-
-def filter_sentence(cur_sent):
-
-    filter_punctation = [".", ":"]
-
-    cur_sent = cur_sent.replace(",", ", ")
-    cur_sent = cur_sent.replace("\'", " ")
-    cur_sent = cur_sent.replace("\"", ", ")
-    cur_sent = cur_sent.replace("-", " ")
-    cur_sent = cur_sent.replace("/", " ")
-    cur_sent = cur_sent.replace("*", " ")
-    cur_sent = cur_sent.replace("<", " ")
-    cur_sent = cur_sent.replace(">", " ")
-    cur_sent = re.sub(r'\.{2,}', '. ', cur_sent)
-    cur_sent = re.sub(r'\!{2,}', '! ', cur_sent)
-    cur_sent = re.sub(r'\?{2,}', '? ', cur_sent)
-
-    cur_sent = re.sub(r"\s+", " ", cur_sent, flags=re.UNICODE)
-    cur_sent = cur_sent.strip()
-
-    if len(cur_sent) > 1 and cur_sent[-1] in filter_punctation:
-        cur_sent = cur_sent[:-1]
-
-    return cur_sent
 
 def wrapper_ent_attn_flow(cfg, encoder, tokenizer, sent_corpus, num_sents_all, top_k=5, target_layer=-1):
     '''
@@ -73,10 +47,6 @@ def wrapper_ent_attn_flow(cfg, encoder, tokenizer, sent_corpus, num_sents_all, t
     list_doc_np_sbw_loc = []
     list_doc_vp_sbw_loc = []
     cache_entity = False
-
-    import re
-    filter_punctation = [".", ":"]
-
     list_val_ent_topk = []
     list_val_vp_topk = []
 
@@ -120,25 +90,7 @@ def wrapper_ent_attn_flow(cfg, encoder, tokenizer, sent_corpus, num_sents_all, t
                 list_tags_sbw_loc = doc_np_sbw_loc[sent_ind]
             else:
                 list_tags_sbw_loc = []
-
-            cur_sent = cur_sent.replace(",", ", ")
-            cur_sent = cur_sent.replace("\'", " ")
-            cur_sent = cur_sent.replace("\"", ", ")
-            cur_sent = cur_sent.replace("-", " ")
-            cur_sent = cur_sent.replace("/", " ")
-            cur_sent = cur_sent.replace("*", " ")
-            cur_sent = cur_sent.replace("<", " ")
-            cur_sent = cur_sent.replace(">", " ")
-            cur_sent = re.sub(r'\.{2,}', '. ', cur_sent)
-            cur_sent = re.sub(r'\!{2,}', '! ', cur_sent)
-            cur_sent = re.sub(r'\?{2,}', '? ', cur_sent)
-
-            cur_sent = re.sub(r"\s+", " ", cur_sent, flags=re.UNICODE)
-            cur_sent = cur_sent.strip()
-
-            if len(cur_sent) > 1 and cur_sent[-1] in filter_punctation:
-                cur_sent = cur_sent[:-1]
-
+            cur_sent = filter_sentence(cur_sent)
             if len(cur_sent.split()) < 5:
                 num_sents_short += 1
                 continue
@@ -189,9 +141,12 @@ def wrapper_ent_attn_flow(cfg, encoder, tokenizer, sent_corpus, num_sents_all, t
 
             else:
                 num_sents_corrupted += 1
-
-            if len(list_np_sbw_loc) < 1:    num_sents_non_ent += 1
-            if len(list_vp_sbw_loc) < 1:    num_sents_no_vp += 1
+            list_np_sbw_loc = output_attn_flow.get("list_np_sbw_loc", [])
+            list_vp_sbw_loc = output_attn_flow.get("list_vp_sbw_loc", [])
+            if len(list_np_sbw_loc) < 1:
+                num_sents_non_ent += 1
+            if len(list_vp_sbw_loc) < 1:
+                num_sents_no_vp += 1
 
         if len(doc_val_ent_topk)>0: list_val_ent_topk.append(doc_val_ent_topk)
         if len(doc_val_vp_topk)>0: list_val_vp_topk.append(doc_val_vp_topk)
@@ -277,47 +232,6 @@ def wrapper_ent_attn_flow(cfg, encoder, tokenizer, sent_corpus, num_sents_all, t
 
     return outputs
 
-######################################
-#### datasets
-
-def load_dataset_toefl(cfg, num_samples=0):
-    path_data = os.environ.get("DATA_PATH") or cfg.dataset.path_data
-    cur_fold = 0
-    str_cur_fold = str(cur_fold)
-
-    train_pd = pd.read_csv(os.path.join(path_data, "sst_train_fold_" + str_cur_fold + ".csv"), sep=",", header=0, encoding="utf-8", engine='c', index_col=0)
-    valid_pd = pd.read_csv(os.path.join(path_data, "sst_valid_fold_" + str_cur_fold + ".csv"), sep=",", header=0, encoding="utf-8", engine='c', index_col=0)
-    test_pd = pd.read_csv(os.path.join(path_data, "sst_test_fold_" + str_cur_fold + ".csv"), sep=",", header=0, encoding="utf-8", engine='c', index_col=0)
-
-    score = 2
-    train_pd = train_pd.loc[train_pd['essay_score'] == score]
-    valid_pd = valid_pd.loc[valid_pd['essay_score'] == score]
-    test_pd = test_pd.loc[test_pd['essay_score'] == score]
-
-    if num_samples > 0:
-        train_pd = train_pd[:num_samples]
-        valid_pd = valid_pd[:num_samples]
-        test_pd = test_pd[:num_samples]
-
-    total_pd = pd.concat([train_pd, valid_pd, test_pd], sort=True)
-    total_corpus = total_pd["essay"].values
-
-    import stanza
-    tokenizer_stanza = stanza.Pipeline("en", processors="tokenize", use_gpu=True)
-    num_sents = []
-    sent_corpus = []
-    for cur_doc in total_corpus:
-        doc_stanza = tokenizer_stanza(cur_doc)
-        sent_list = [sentence.text for sentence in doc_stanza.sentences]
-        
-        sent_corpus.append(sent_list)
-        num_sents.append(len(sent_list))
-
-
-    return sent_corpus, num_sents
-
-################################
-################
 
 @hydra.main(version_base=None, config_path=".", config_name="config")
 def main(cfg: DictConfig) -> None:
@@ -341,7 +255,12 @@ def main(cfg: DictConfig) -> None:
 
     logger.info(f"Target LLM: {cfg.model.llm_id}")
 
-    sent_corpus, num_sents = load_dataset_toefl(cfg, num_samples=0)
+    sent_corpus, num_sents = load_dataset_toefl(
+        cfg.dataset.path_data,
+        num_samples=0,
+        filter_key="essay_score",
+        filter_value=2,
+    )
     num_docs = len(sent_corpus)
     num_sents_all = sum(num_sents)
     if cfg.exp_args.sample_num != -1:
