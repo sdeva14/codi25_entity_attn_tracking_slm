@@ -1,0 +1,12 @@
+# @package _global_
+# Override path_data via DATA_PATH env (see README) or edit below.
+dataset:
+  path_data: ./data/toefl
+  target_prompt: 1
+  num_fold: 5
+  batch_size: 32
+  tokenize_method: sent # sent, length
+  len_segment_trunc: 20  # the number of words to segment as a unit
+training:
+  num_epochs: 10
+  learning_rate: 0.001

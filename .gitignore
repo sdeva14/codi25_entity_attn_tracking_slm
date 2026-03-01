@@ -1,0 +1,29 @@
+# Build and cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Data and outputs
+outputs/
+*.json
+!corpus/*.json
+*.safetensors
+*.pt
+hf_train_results_lora/
+offload/
+
+# Experiment logs and job outputs (do not commit)
+exp_toefl/
+exp_sst5/
+log_entity_attn/
+log_attn_flow_sample/
+log_ent_attn_layers/
+*.out
+*.err
+
+# Local env with secrets
+.env
+.env.*

@@ -1,0 +1,24 @@
+# Copy to config.yaml and set your values.
+# For Hugging Face gated models, set HF_TOKEN in the environment:
+#   export HF_TOKEN=your_token_here
+# Or set hf_token below (not recommended for shared repos).
+
+defaults:
+  - corpus: config_toefl
+
+# Optional: set only if not using HF_TOKEN env var
+hf_token: null
+
+training_args:
+  mixed_precision: 'no'
+  gradient_accumulation_steps: 1
+  run_iter: 5
+  path_resume_checkpoint: ""
+  checkpointing_steps: epoch
+
+exp_args:
+  sample_num: 500
+  top_k: 5
+
+model:
+  llm_id: microsoft/Phi-3.5-mini-instruct
